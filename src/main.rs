@@ -1,9 +1,9 @@
 use chrono::{DateTime, Local, Timelike};
 use std::{process::Command, time};
-
 use std::{fs, thread};
+mod smart_plug;
 fn main() {
-    let mut plug = SmartPlug::new(String::from("10.0.0.44"));
+    let mut plug = smart_plug::SmartPlug::new(String::from("10.0.0.44:9999"));
     println!("Amps at startup: {} A", plug.get_amps());
 
     loop {
@@ -26,7 +26,7 @@ fn wait_till_6() {
         sleep_duration.num_seconds() as u64
     ));
 }
-fn run_loop(p: &mut SmartPlug) {
+fn run_loop(p: &mut smart_plug::SmartPlug) {
     let mut flag = true;
     let local: DateTime<Local> = Local::now();
     let mut today = local.format("%A").to_string();
@@ -48,7 +48,7 @@ fn run_loop(p: &mut SmartPlug) {
     }
     while flag {
         match p.state {
-            PlugState::On => {
+            smart_plug::PlugState::On => {
                 if (timer % 60) == 0 {
                     println!("TV is on! Timer is at {} mins", timer / 60);
                     fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
@@ -57,9 +57,9 @@ fn run_loop(p: &mut SmartPlug) {
                 timer += 1;
                 p.update_state();
             }
-            PlugState::Off => {
+            smart_plug::PlugState::Off => {
                 println!("TV is off,checking if 6 am");
-                while PlugState::Off == p.state {
+                while smart_plug::PlugState::Off == p.state {
                     let local: DateTime<Local> = Local::now();
                     let hrs = local.hour();
                     if hrs == 6 {
@@ -72,9 +72,9 @@ fn run_loop(p: &mut SmartPlug) {
                 }
                 println!("State Change from Off!");
             }
-            PlugState::Idle => {
+            smart_plug::PlugState::Idle => {
                 println!("TV is idle, timer is at {} secs", timer);
-                while PlugState::Idle == p.state {
+                while smart_plug::PlugState::Idle == p.state {
                     thread::sleep(time::Duration::from_secs(1));
                     let local: DateTime<Local> = Local::now();
                     let hrs = local.hour();
@@ -97,7 +97,7 @@ fn run_loop(p: &mut SmartPlug) {
                 }
                 println!("State Change from Idle!");
             }
-            PlugState::Unknown => {
+            smart_plug::PlugState::Unknown => {
                 p.update_state();
             }
         }
@@ -108,71 +108,4 @@ fn run_loop(p: &mut SmartPlug) {
     }
     println!("The value has been true for {} secs", timer);
 }
-#[derive(PartialEq)]
-enum PlugState {
-    On,
-    Off,
-    Idle,
-    Unknown,
-}
 
-pub struct SmartPlug {
-    host: String,
-    state: PlugState,
-}
-impl SmartPlug {
-    pub fn new(host_ip: String) -> Self {
-        Self {
-            host: host_ip,
-            state: PlugState::Unknown,
-        }
-    }
-    fn get_amps(&self) -> f32 {
-        let out = Command::new("kasa")
-            .arg("--host")
-            .arg(&self.host)
-            .arg("emeter")
-            .output()
-            .expect("kasa command failed to start");
-        let rst = String::from_utf8(out.stdout).unwrap();
-        let split = rst.split('\n');
-        let vec: Vec<&str> = split.collect();
-        if vec.len() > 2 {
-            let cur_str = vec[2];
-            let val: Vec<&str> = cur_str.split_whitespace().collect();
-            let cur = val[1].parse::<f32>();
-            cur.unwrap_or(0.0)
-        } else {
-            println!("Could not get amps, trying again!");
-            thread::sleep(time::Duration::from_secs(10));
-            self.get_amps()
-        }
-    }
-    fn update_state(&mut self) {
-        if self.get_amps() > 0.5 {
-            self.state = PlugState::On;
-        } else if self.get_amps() == 0.0 {
-            self.state = PlugState::Off;
-        } else {
-            self.state = PlugState::Idle;
-        }
-    }
-    fn on(&self) {
-        println!("Turning on TV");
-        Command::new("kasa")
-            .arg("--host")
-            .arg(&self.host)
-            .arg("on")
-            .output()
-            .expect("kasa command failed to start");
-    }
-    fn off(&self) {
-        println!("Turning off TV");
-        Command::new("kasa")
-            .arg("--host")
-            .arg(&self.host)
-            .arg("off")
-            .output()
-            .expect("kasa command failed to start");
-    }
-}
