@@ -1,11 +1,10 @@
 use chrono::{DateTime, Local, Timelike};
-use std::{process::Command, time};
+use std::time;
 use std::{fs, thread};
 mod smart_plug;
 fn main() {
     let mut plug = smart_plug::SmartPlug::new(String::from("10.0.0.44:9999"));
     println!("Amps at startup: {} A", plug.get_amps());
-
     loop {
         run_loop(&mut plug);
         wait_till_6();
@@ -42,8 +41,7 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
     };
 
     println!("Waiting for {} hrs", wait_for / 3600);
-    if timer != 0 
-    {
+    if timer != 0 {
         println!("Starting timer at {} per text file", timer);
     }
     while flag {
@@ -108,4 +106,3 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
     }
     println!("The value has been true for {} secs", timer);
 }
-
