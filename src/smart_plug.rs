@@ -10,21 +10,37 @@ pub enum PlugState {
 }
 
 pub struct SmartPlug {
+    host_ip: String,
     pub state: PlugState,
-    stream: TcpStream,
 }
 impl SmartPlug {
-    pub fn new(host_ip: String) -> Self {
+    pub fn new(ip: String) -> Self {
         Self {
+            host_ip: ip,
             state: PlugState::Unknown,
-            stream: TcpStream::connect(host_ip).expect("Could not set up TCPStream"),
         }
     }
     pub fn get_amps(&self) -> f32 {
         let raw = r#"{"emeter":{"get_realtime":{}}}"#;
-        tplink_shome_protocol::send_message(&self.stream, raw).expect("msg could not send");
-        let message = tplink_shome_protocol::receive_message(&self.stream)
-            .unwrap_or_else(|_| String::from("0.0"));
+        let stream = match TcpStream::connect(&self.host_ip) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("Could not connect due to {} trying again in 10", e);
+                thread::sleep(time::Duration::from_secs(10));
+                TcpStream::connect(&self.host_ip).unwrap()
+            }
+        };
+        let rst = tplink_shome_protocol::send_message(&stream, raw);
+        match rst {
+            Ok(_) => (),
+            Err(_) => {
+                println!("Could not send message to get amps! trying again");
+                thread::sleep(time::Duration::from_secs(10));
+                self.get_amps();
+            }
+        }
+        let message =
+            tplink_shome_protocol::receive_message(&stream).unwrap_or_else(|_| String::from("0.0"));
         let emeter: Value = serde_json::from_str(&message).unwrap_or(json!(null));
         let current_ma = emeter["emeter"]["get_realtime"]["current_ma"]
             .as_u64()
@@ -48,11 +64,44 @@ impl SmartPlug {
     pub fn on(&self) {
         println!("Turning on TV");
         let raw = r#"{"system":{"set_relay_state":{"state":1}}}"#;
-        tplink_shome_protocol::send_message(&self.stream, raw).expect("msg could not send");
+        let stream = match TcpStream::connect(&self.host_ip) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("Could not connect due to {} trying again in 10", e);
+                thread::sleep(time::Duration::from_secs(10));
+                TcpStream::connect(&self.host_ip).unwrap()
+            }
+        };
+        tplink_shome_protocol::send_message(&stream, raw).expect("msg could not send");
+        let rst = tplink_shome_protocol::send_message(&stream, raw);
+        match rst {
+            Ok(_) => (),
+            Err(_) => {
+                println!("Could not send message to turn on device! trying again");
+                thread::sleep(time::Duration::from_secs(10));
+                self.on();
+            }
+        }
     }
     pub fn off(&self) {
         println!("Turning off TV");
         let raw = r#"{"system":{"set_relay_state":{"state":0}}}"#;
-        tplink_shome_protocol::send_message(&self.stream, raw).expect("msg could not send");
+        let stream = match TcpStream::connect(&self.host_ip) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("Could not connect due to {} trying again in 10", e);
+                thread::sleep(time::Duration::from_secs(10));
+                TcpStream::connect(&self.host_ip).unwrap()
+            }
+        };
+        let rst = tplink_shome_protocol::send_message(&stream, raw);
+        match rst {
+            Ok(_) => (),
+            Err(_) => {
+                println!("Could not send message to turn off device! trying again");
+                thread::sleep(time::Duration::from_secs(10));
+                self.off();
+            }
+        }
     }
 }

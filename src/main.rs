@@ -20,10 +20,18 @@ fn wait_till_6() {
         .unwrap()
         .with_second(0)
         .unwrap();
-    let sleep_duration = target_time.signed_duration_since(now);
+    let sleep_duration = target_time.signed_duration_since(now) + chrono::Duration::hours(24);
+    let total_seconds = sleep_duration.num_seconds();
+
+    let (hours, remainder) = (total_seconds / 3600, total_seconds % 3600);
+    let (minutes, seconds) = (remainder / 60, remainder % 60);
+
+    println!("We are waiting until 6:00 to turn on TV! There are {} hours, {} minutes, and {} seconds left", hours, minutes, seconds);
+
     thread::sleep(time::Duration::from_secs(
         sleep_duration.num_seconds() as u64
     ));
+    println!("Its 6 am!");
 }
 fn run_loop(p: &mut smart_plug::SmartPlug) {
     let mut flag = true;
@@ -35,7 +43,7 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
         .parse::<i32>()
         .unwrap_or(0);
     let mut wait_for = if today == "Saturday" || today == "Sunday" {
-        10800
+        7200
     } else {
         3600
     };
@@ -84,7 +92,7 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
                         fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
                         today = local.format("%A").to_string();
                         wait_for = if today == "Saturday" || today == "Sunday" {
-                            10800
+                            7200
                         } else {
                             3600
                         };
@@ -101,6 +109,8 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
         }
         if timer > wait_for {
             flag = false;
+            timer = 0;
+            fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
             p.off();
         }
     }
