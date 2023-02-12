@@ -26,7 +26,7 @@ fn wait_till_6() {
     let (hours, remainder) = (total_seconds / 3600, total_seconds % 3600);
     let (minutes, seconds) = (remainder / 60, remainder % 60);
 
-    println!("We are waiting until 6:00 to turn on TV! There are {} hours, {} minutes, and {} seconds left", hours, minutes, seconds);
+    println!("We are waiting until 6:00 to turn on TV! There are {hours} hours, {minutes} minutes, and {seconds} seconds left");
 
     thread::sleep(time::Duration::from_secs(
         sleep_duration.num_seconds() as u64
@@ -50,7 +50,7 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
 
     println!("Waiting for {} hrs", wait_for / 3600);
     if timer != 0 {
-        println!("Starting timer at {} per text file", timer);
+        println!("Starting timer at {timer} per text file");
     }
     while flag {
         match p.state {
@@ -79,7 +79,7 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
                 println!("State Change from Off!");
             }
             smart_plug::PlugState::Idle => {
-                println!("TV is idle, timer is at {} secs", timer);
+                println!("TV is idle, timer is at {timer} secs");
                 while smart_plug::PlugState::Idle == p.state {
                     thread::sleep(time::Duration::from_secs(1));
                     let local: DateTime<Local> = Local::now();
@@ -114,5 +114,5 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
             p.off();
         }
     }
-    println!("The value has been true for {} secs", timer);
+    println!("The value has been true for {timer} secs");
 }

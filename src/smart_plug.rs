@@ -22,23 +22,24 @@ impl SmartPlug {
     }
     pub fn get_amps(&self) -> f32 {
         let raw = r#"{"emeter":{"get_realtime":{}}}"#;
-        let stream = match TcpStream::connect(&self.host_ip) {
-            Ok(s) => s,
-            Err(e) => {
-                println!("Could not connect due to {} trying again in 10", e);
-                thread::sleep(time::Duration::from_secs(10));
-                TcpStream::connect(&self.host_ip).unwrap()
+        let stream = loop {
+            match TcpStream::connect(&self.host_ip) {
+                Ok(s) => break s,
+                Err(e) => {
+                    println!("Could not connect due to {e} trying again in 10");
+                    thread::sleep(time::Duration::from_secs(10));
+                }
             }
         };
-        let rst = tplink_shome_protocol::send_message(&stream, raw);
-        match rst {
-            Ok(_) => (),
-            Err(_) => {
-                println!("Could not send message to get amps! trying again");
-                thread::sleep(time::Duration::from_secs(10));
-                self.get_amps();
+        loop {
+            match tplink_shome_protocol::send_message(&stream, raw) {
+                Ok(_) => break,
+                Err(_) => {
+                    println!("Could not send message to get amps! trying again");
+                    thread::sleep(time::Duration::from_secs(10));
+                }
             }
-        }
+        };
         let message =
             tplink_shome_protocol::receive_message(&stream).unwrap_or_else(|_| String::from("0.0"));
         let emeter: Value = serde_json::from_str(&message).unwrap_or(json!(null));
@@ -48,7 +49,6 @@ impl SmartPlug {
         if current_ma == u64::MAX {
             println!("Could not connect to device trying again in 10 secs");
             thread::sleep(time::Duration::from_secs(10));
-            self.get_amps();
         }
         (current_ma as f32) / 1000.0
     }
@@ -89,7 +89,7 @@ impl SmartPlug {
         let stream = match TcpStream::connect(&self.host_ip) {
             Ok(s) => s,
             Err(e) => {
-                println!("Could not connect due to {} trying again in 10", e);
+                println!("Could not connect due to {e} trying again in 10");
                 thread::sleep(time::Duration::from_secs(10));
                 TcpStream::connect(&self.host_ip).unwrap()
             }
