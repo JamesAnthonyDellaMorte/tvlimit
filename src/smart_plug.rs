@@ -39,7 +39,7 @@ impl SmartPlug {
                     thread::sleep(time::Duration::from_secs(10));
                 }
             }
-        };
+        }
         let message =
             tplink_shome_protocol::receive_message(&stream).unwrap_or_else(|_| String::from("0.0"));
         let emeter: Value = serde_json::from_str(&message).unwrap_or(json!(null));
