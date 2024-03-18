@@ -1,23 +1,41 @@
+use reqwest::blocking::Client;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::TcpStream;
+use std::time::Duration;
 use std::{thread, time};
-#[derive(PartialEq)]
-pub enum PlugState {
+#[derive(PartialEq, Debug)]
+pub enum TVState {
     On,
     Off,
     Idle,
+    Play,
     Unknown,
 }
+#[derive(Debug, Deserialize)]
+struct Player {
+    #[serde(rename = "state")]
+    state: String,
+    plugin: Option<Plugin>, // Note the use of Option here
+}
 
+
+#[derive(Debug, Deserialize)]
+struct Plugin {
+    #[serde(rename = "name")]
+    name: String,
+}
 pub struct SmartPlug {
     host_ip: String,
-    pub state: PlugState,
+    pub state: TVState,
+    pub whats_playing: String,
 }
 impl SmartPlug {
     pub fn new(ip: String) -> Self {
         Self {
             host_ip: ip,
-            state: PlugState::Unknown,
+            state: TVState::Unknown,
+            whats_playing: "Nothing".to_string(),
         }
     }
     pub fn get_amps(&self) -> f32 {
@@ -39,7 +57,7 @@ impl SmartPlug {
                     thread::sleep(time::Duration::from_secs(10));
                 }
             }
-        };
+        }
         let message =
             tplink_shome_protocol::receive_message(&stream).unwrap_or_else(|_| String::from("0.0"));
         let emeter: Value = serde_json::from_str(&message).unwrap_or(json!(null));
@@ -52,13 +70,34 @@ impl SmartPlug {
         }
         (current_ma as f32) / 1000.0
     }
+    pub fn player_state(&mut self) -> String {
+        let client = Client::new();
+        let response = client
+            .get("http://10.0.0.14:8060/query/media-player")
+            .timeout(Duration::from_secs(5))
+            .send();
+        let body = match response {
+            Ok(s) => s,
+            Err(_) => {
+                return "Off".to_string();
+            }
+        };
+        let player: Player = serde_xml_rs::from_str(&body.text().unwrap()).unwrap();
+        self.whats_playing = match player.plugin {
+            Some(s) => s.name,
+            None => "Nothing".to_string(),
+        };
+        player.state.to_ascii_lowercase()
+    }
     pub fn update_state(&mut self) {
-        if self.get_amps() > 0.5 {
-            self.state = PlugState::On;
+        if self.player_state() == "play" {
+            self.state = TVState::Play;
         } else if self.get_amps() == 0.0 {
-            self.state = PlugState::Off;
+            self.state = TVState::Off;
+        } else if self.get_amps() > 0.5 {
+            self.state = TVState::On;
         } else {
-            self.state = PlugState::Idle;
+            self.state = TVState::Idle;
         }
     }
     pub fn on(&self) {

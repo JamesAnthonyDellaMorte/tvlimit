@@ -7,16 +7,16 @@ fn main() {
     println!("Amps at startup: {} A", plug.get_amps());
     loop {
         run_loop(&mut plug);
-        wait_till_6();
+        wait_till_730();
         plug.on();
     }
 }
-fn wait_till_6() {
+fn wait_till_730() {
     let now = Local::now();
     let target_time = now
-        .with_hour(6)
+        .with_hour(7)
         .unwrap()
-        .with_minute(0)
+        .with_minute(30)
         .unwrap()
         .with_second(0)
         .unwrap();
@@ -31,88 +31,100 @@ fn wait_till_6() {
     thread::sleep(time::Duration::from_secs(
         sleep_duration.num_seconds() as u64
     ));
-    println!("Its 6 am!");
+    println!("Its 7:30 am!");
 }
 fn run_loop(p: &mut smart_plug::SmartPlug) {
-    let mut flag = true;
+    let mut can_watch_tv = true;
     let local: DateTime<Local> = Local::now();
-    let mut today = local.format("%A").to_string();
+    let today = local.format("%A").to_string();
     let mut timer = fs::read_to_string("tvtimer.txt")
         .unwrap_or_else(|_| "0\n".to_owned())
         .trim()
         .parse::<i32>()
         .unwrap_or(0);
-    let mut wait_for = if today == "Saturday" || today == "Sunday" {
-        7200
-    } else {
+    let wait_for = if today == "Saturday" || today == "Sunday" {
         3600
+    } else {
+        5400
     };
-
-    println!("Waiting for {} hrs", wait_for / 3600);
+    let hours = wait_for / 3600;
+    let minutes = (wait_for % 3600) / 60;
+    if minutes > 0 {
+        println!("Waiting for {} hrs and {} mins", hours, minutes);
+    } else {
+        println!("Waiting for {} hrs", hours);
+    }
     if timer != 0 {
         println!("Starting timer at {timer} per text file");
     }
-    while flag {
+    p.update_state();
+    while can_watch_tv {
         match p.state {
-            smart_plug::PlugState::On => {
-                if (timer % 60) == 0 {
-                    println!("TV is on! Timer is at {} mins", timer / 60);
+            smart_plug::TVState::Play => {
+                if (timer % 30) == 0 {
+                    println!(
+                        "TV is Playing! Timer is at {} mins, Looks like something on {} is playing",
+                        (timer as f32) / 60.0,
+                        p.whats_playing
+                    );
                     fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
                 }
-                thread::sleep(time::Duration::from_secs(1));
-                timer += 1;
+                thread::sleep(time::Duration::from_secs(5));
+                timer += 5;
                 p.update_state();
+                if smart_plug::TVState::Play != p.state {
+                    println!("State Change from Play! State is now {:?}", p.state);
+                }
             }
-            smart_plug::PlugState::Off => {
-                println!("TV is off,checking if 6 am");
-                while smart_plug::PlugState::Off == p.state {
-                    let local: DateTime<Local> = Local::now();
-                    let hrs = local.hour();
-                    if hrs == 6 {
-                        p.on();
-                        timer = 0;
-                        fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
-                    }
-                    thread::sleep(time::Duration::from_secs(1));
+            smart_plug::TVState::On => {
+                println!("TV is On! But nothing is playing");
+                while smart_plug::TVState::On == p.state {
+                    thread::sleep(time::Duration::from_secs(5));
                     p.update_state();
                 }
-                println!("State Change from Off!");
+                println!("State Change from On! State is now {:?}", p.state);
             }
-            smart_plug::PlugState::Idle => {
+            smart_plug::TVState::Off => {
+                println!("TV is off");
+                while smart_plug::TVState::Off == p.state {
+                    let local: DateTime<Local> = Local::now();
+                    let hrs = local.hour();
+                    if hrs == 21 || hrs == 22 || hrs == 23 {
+                        can_watch_tv = false;
+                        timer = 0;
+                        fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
+                        break;
+                    }
+                    thread::sleep(time::Duration::from_secs(5));
+                    p.update_state();
+                }
+                println!("State Change from Off! State is now {:?}", p.state);
+            }
+            smart_plug::TVState::Idle => {
                 println!("TV is idle, timer is at {timer} secs");
-                while smart_plug::PlugState::Idle == p.state {
-                    thread::sleep(time::Duration::from_secs(1));
-                    let local: DateTime<Local> = Local::now();
+                while smart_plug::TVState::Idle == p.state {
+                    thread::sleep(time::Duration::from_secs(5));
                     let hrs = local.hour();
-                    let secs = local.second();
-                    if hrs == 6 && secs < 5 {
-                        println!("A new day without all TV time being used!");
-                        thread::sleep(time::Duration::from_secs(10));
+                    if hrs == 21 {
+                        can_watch_tv = false;
                         timer = 0;
                         fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
-                        today = local.format("%A").to_string();
-                        wait_for = if today == "Saturday" || today == "Sunday" {
-                            7200
-                        } else {
-                            3600
-                        };
-                        println!("Waiting for {} hrs", wait_for / 3600);
+                        break;
                     }
-
                     p.update_state();
                 }
-                println!("State Change from Idle!");
+                println!("State Change from Idle! State is now {:?}", p.state);
             }
-            smart_plug::PlugState::Unknown => {
+            smart_plug::TVState::Unknown => {
                 p.update_state();
             }
         }
         if timer > wait_for {
-            flag = false;
+            can_watch_tv = false;
+            println!("The value has been true for {timer} secs");
             timer = 0;
             fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
             p.off();
         }
     }
-    println!("The value has been true for {timer} secs");
 }
