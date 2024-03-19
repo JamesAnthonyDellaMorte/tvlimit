@@ -36,7 +36,7 @@ struct Player {
 impl Default for Player {
     fn default() -> Self {
         Player {
-            state: "Unknown".to_string(), // Provide a default state
+            state: "Unknown".to_string(),    // Provide a default state
             plugin: Some(Plugin::default()), // Use Some if you want a default plugin, or None to have no plugin by default
         }
     }
@@ -87,9 +87,7 @@ impl SmartPlug {
         (current_ma as f32) / 1000.0
     }
     pub fn player_state(&mut self) -> String {
-        let response = ureq::get("http://10.0.0.14:8060/query/media-player")
-            .call();
-
+        let response = ureq::get("http://10.0.0.49:8060/query/media-player").call();
 
         let body = match response {
             Ok(s) => s.into_reader(),
@@ -157,5 +155,12 @@ impl SmartPlug {
                 self.off();
             }
         }
+    }
+    pub fn press_home_button(&self) {
+        let url = "http://10.0.0.49:8060/keypress/home";
+        match ureq::post(url).call() {
+            Ok(_) => println!("Pressed Home Button"),
+            Err(e) => println!("Error pressing Home Button: {}", e),
+        };
     }
 }

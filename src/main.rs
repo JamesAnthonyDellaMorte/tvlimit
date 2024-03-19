@@ -14,7 +14,8 @@ fn main() {
 
 fn wait_till_1230() {
     let now = Local::now();
-    let target_time = now.with_hour(12)
+    let target_time = now
+        .with_hour(12)
         .and_then(|time| time.with_minute(30))
         .and_then(|time| time.with_second(0));
 
@@ -33,7 +34,7 @@ fn wait_till_1230() {
 
             thread::sleep(time::Duration::from_secs(total_seconds as u64));
             println!("It's 12:30 pm!");
-        },
+        }
         None => eprintln!("Failed to set target time."),
     }
 }
@@ -129,6 +130,8 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
             println!("The value has been true for {timer} secs");
             timer = 0;
             fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
+            p.press_home_button();
+            thread::sleep(time::Duration::from_secs(5));
             p.off();
         }
     }
