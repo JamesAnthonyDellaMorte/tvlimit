@@ -1,8 +1,6 @@
-use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::TcpStream;
-use std::time::Duration;
 use std::{thread, time};
 #[derive(PartialEq, Debug)]
 pub enum TVState {
@@ -13,17 +11,35 @@ pub enum TVState {
     Unknown,
 }
 #[derive(Debug, Deserialize)]
+struct Plugin {
+    // Example fields for the Plugin struct
+    name: String,
+}
+
+// Implementing Default for Plugin just as an example
+impl Default for Plugin {
+    fn default() -> Self {
+        Plugin {
+            name: "Unknown".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct Player {
     #[serde(rename = "state")]
     state: String,
     plugin: Option<Plugin>, // Note the use of Option here
 }
 
-
-#[derive(Debug, Deserialize)]
-struct Plugin {
-    #[serde(rename = "name")]
-    name: String,
+// Implement the Default trait for Player
+impl Default for Player {
+    fn default() -> Self {
+        Player {
+            state: "Unknown".to_string(), // Provide a default state
+            plugin: Some(Plugin::default()), // Use Some if you want a default plugin, or None to have no plugin by default
+        }
+    }
 }
 pub struct SmartPlug {
     host_ip: String,
@@ -59,7 +75,7 @@ impl SmartPlug {
             }
         }
         let message =
-            tplink_shome_protocol::receive_message(&stream).unwrap_or_else(|_| String::from("0.0"));
+            tplink_shome_protocol::receive_message(&stream).unwrap_or(String::from("0.0"));
         let emeter: Value = serde_json::from_str(&message).unwrap_or(json!(null));
         let current_ma = emeter["emeter"]["get_realtime"]["current_ma"]
             .as_u64()
@@ -71,18 +87,17 @@ impl SmartPlug {
         (current_ma as f32) / 1000.0
     }
     pub fn player_state(&mut self) -> String {
-        let client = Client::new();
-        let response = client
-            .get("http://10.0.0.14:8060/query/media-player")
-            .timeout(Duration::from_secs(5))
-            .send();
+        let response = ureq::get("http://10.0.0.14:8060/query/media-player")
+            .call();
+
+
         let body = match response {
-            Ok(s) => s,
+            Ok(s) => s.into_reader(),
             Err(_) => {
                 return "Off".to_string();
             }
         };
-        let player: Player = serde_xml_rs::from_str(&body.text().unwrap()).unwrap();
+        let player: Player = serde_xml_rs::from_reader(body).unwrap_or(Player::default());
         self.whats_playing = match player.plugin {
             Some(s) => s.name,
             None => "Nothing".to_string(),

@@ -7,43 +7,48 @@ fn main() {
     println!("Amps at startup: {} A", plug.get_amps());
     loop {
         run_loop(&mut plug);
-        wait_till_730();
+        wait_till_1230();
         plug.on();
     }
 }
-fn wait_till_730() {
+
+fn wait_till_1230() {
     let now = Local::now();
-    let target_time = now
-        .with_hour(7)
-        .unwrap()
-        .with_minute(30)
-        .unwrap()
-        .with_second(0)
-        .unwrap();
-    let sleep_duration = target_time.signed_duration_since(now) + chrono::Duration::hours(24);
-    let total_seconds = sleep_duration.num_seconds();
+    let target_time = now.with_hour(12)
+        .and_then(|time| time.with_minute(30))
+        .and_then(|time| time.with_second(0));
 
-    let (hours, remainder) = (total_seconds / 3600, total_seconds % 3600);
-    let (minutes, seconds) = (remainder / 60, remainder % 60);
+    match target_time {
+        Some(target_time) => {
+            let sleep_duration = if target_time > now {
+                target_time - now
+            } else {
+                target_time + time::Duration::from_secs(86400) - now
+            };
+            let total_seconds = sleep_duration.num_seconds();
+            let (hours, remainder) = (total_seconds / 3600, total_seconds % 3600);
+            let (minutes, seconds) = (remainder / 60, remainder % 60);
 
-    println!("We are waiting until 6:00 to turn on TV! There are {hours} hours, {minutes} minutes, and {seconds} seconds left");
+            println!("We are waiting until 12:30 pm to turn on TV! There are {} hours, {} minutes, and {} seconds left.", hours, minutes, seconds);
 
-    thread::sleep(time::Duration::from_secs(
-        sleep_duration.num_seconds() as u64
-    ));
-    println!("Its 7:30 am!");
+            thread::sleep(time::Duration::from_secs(total_seconds as u64));
+            println!("It's 12:30 pm!");
+        },
+        None => eprintln!("Failed to set target time."),
+    }
 }
+
 fn run_loop(p: &mut smart_plug::SmartPlug) {
     let mut can_watch_tv = true;
     let local: DateTime<Local> = Local::now();
     let today = local.format("%A").to_string();
     let mut timer = fs::read_to_string("tvtimer.txt")
-        .unwrap_or_else(|_| "0\n".to_owned())
+        .unwrap_or("0\n".to_owned())
         .trim()
         .parse::<i32>()
         .unwrap_or(0);
     let wait_for = if today == "Saturday" || today == "Sunday" {
-        3600
+        7200
     } else {
         5400
     };
