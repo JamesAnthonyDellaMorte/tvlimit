@@ -1,12 +1,44 @@
+use crate::smart_plug::SmartPlug;
 use chrono::{DateTime, Local, Timelike};
+use serde::Deserialize;
 use std::time;
 use std::{fs, thread};
+use humantime::format_duration;
 mod smart_plug;
+#[derive(Deserialize, Clone)]
+struct Settings {
+    roku_ip: String,
+    plug_ip: String,
+    ttw: u32,
+}
+
+#[derive(Deserialize, Clone)]
+struct Config {
+    user: Settings,
+}
 fn main() {
-    let mut plug = smart_plug::SmartPlug::new(String::from("10.0.0.44:9999"));
-    println!("Amps at startup: {} A", plug.get_amps());
+    let toml_str = fs::read_to_string("config.toml").unwrap_or("None".to_owned());
+    let config: Result<Config, toml::de::Error> = toml::from_str(&toml_str);
+    let mut plug: SmartPlug = match config.clone() {
+        Ok(c) => {
+            println!("Setting ip's from config!");
+            smart_plug::SmartPlug::new(
+                format!("{}:9999", c.user.plug_ip),
+                format!("{}:8060", c.user.roku_ip),
+            )
+        }
+        Err(_) => smart_plug::SmartPlug::new(
+            String::from("10.0.0.44:9999"),
+            String::from("10.0.0.124:8060"),
+        ),
+    };
+    let ttw = match config {
+        Ok(c) => Some(c.user.ttw),
+        Err(_) => None,
+    };
     loop {
-        run_loop(&mut plug);
+        run_loop(&mut plug, ttw);
+        plug.off();
         wait_till_1230();
         plug.on();
     }
@@ -21,47 +53,53 @@ fn wait_till_1230() {
 
     match target_time {
         Some(target_time) => {
-            let sleep_duration = if target_time > now {
+            let sleep_delta = if target_time > now {
                 target_time - now
             } else {
                 target_time + time::Duration::from_secs(86400) - now
             };
-            let total_seconds = sleep_duration.num_seconds();
-            let (hours, remainder) = (total_seconds / 3600, total_seconds % 3600);
-            let (minutes, seconds) = (remainder / 60, remainder % 60);
+            let sleep_duration = match sleep_delta.to_std()
+            {
+                Ok(d) => d,
+                Err(_) => {
+                    eprintln!("Failed to convert sleep delta to std duration.");
+                    time::Duration::from_secs(1)
+                }
+            };
+            
 
-            println!("We are waiting until 12:30 pm to turn on TV! There are {} hours, {} minutes, and {} seconds left.", hours, minutes, seconds);
+            println!("We are waiting until 12:30 pm to turn on TV! There are {} left.", format_duration(sleep_duration));
 
-            thread::sleep(time::Duration::from_secs(total_seconds as u64));
+            thread::sleep(sleep_duration);
             println!("It's 12:30 pm!");
         }
         None => eprintln!("Failed to set target time."),
     }
 }
 
-fn run_loop(p: &mut smart_plug::SmartPlug) {
+fn run_loop(p: &mut smart_plug::SmartPlug, ttw: Option<u32>) {
     let mut can_watch_tv = true;
     let local: DateTime<Local> = Local::now();
     let today = local.format("%A").to_string();
     let mut timer = fs::read_to_string("tvtimer.txt")
         .unwrap_or("0\n".to_owned())
         .trim()
-        .parse::<i32>()
+        .parse::<u32>()
         .unwrap_or(0);
-    let wait_for = if today == "Saturday" || today == "Sunday" {
-        7200
-    } else {
-        5400
+    let wait_for = match ttw {
+        Some(v) => v,
+        None => {
+            if today == "Saturday" || today == "Sunday" {
+                5400
+            } else {
+                3600
+            }
+        }
     };
-    let hours = wait_for / 3600;
-    let minutes = (wait_for % 3600) / 60;
-    if minutes > 0 {
-        println!("Waiting for {} hrs and {} mins", hours, minutes);
-    } else {
-        println!("Waiting for {} hrs", hours);
-    }
+
+        println!("Waiting for {}", format_duration(time::Duration::from_secs(wait_for as u64)));
     if timer != 0 {
-        println!("Starting timer at {timer} per text file");
+        println!("Starting timer at {} per text file" , format_duration(time::Duration::from_secs(timer as u64)));
     }
     p.update_state();
     while can_watch_tv {
@@ -69,57 +107,42 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
             smart_plug::TVState::Play => {
                 if (timer % 30) == 0 {
                     println!(
-                        "TV is Playing! Timer is at {} mins, Looks like something on {} is playing",
-                        (timer as f32) / 60.0,
+                        "TV is Playing! Timer is at {}, Looks like something on {} is playing",
+                        format_duration(time::Duration::from_secs(timer as u64)),
                         p.whats_playing
                     );
                     fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
                 }
-                thread::sleep(time::Duration::from_secs(5));
-                timer += 5;
+                thread::sleep(time::Duration::from_secs(1));
+                timer += 1;
                 p.update_state();
                 if smart_plug::TVState::Play != p.state {
                     println!("State Change from Play! State is now {:?}", p.state);
                 }
             }
-            smart_plug::TVState::On => {
-                println!("TV is On! But nothing is playing");
-                while smart_plug::TVState::On == p.state {
-                    thread::sleep(time::Duration::from_secs(5));
+            smart_plug::TVState::Pause => {
+                println!("Looks like something on {} is paused, timer is at {}", p.whats_playing, format_duration(time::Duration::from_secs(timer as u64)));
+                while smart_plug::TVState::Pause == p.state {
+                    thread::sleep(time::Duration::from_secs(1));
                     p.update_state();
                 }
                 println!("State Change from On! State is now {:?}", p.state);
             }
-            smart_plug::TVState::Off => {
-                println!("TV is off");
-                while smart_plug::TVState::Off == p.state {
+            smart_plug::TVState::Idle => {
+                println!("No media is playing via a channel, timer is at {}", format_duration(time::Duration::from_secs(timer as u64)));
+                while smart_plug::TVState::Idle == p.state {
                     let local: DateTime<Local> = Local::now();
                     let hrs = local.hour();
-                    if hrs == 21 || hrs == 22 || hrs == 23 {
+                    if hrs >= 21 {
                         can_watch_tv = false;
                         timer = 0;
                         fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
                         break;
                     }
-                    thread::sleep(time::Duration::from_secs(5));
+                    thread::sleep(time::Duration::from_secs(1));
                     p.update_state();
                 }
                 println!("State Change from Off! State is now {:?}", p.state);
-            }
-            smart_plug::TVState::Idle => {
-                println!("TV is idle, timer is at {timer} secs");
-                while smart_plug::TVState::Idle == p.state {
-                    thread::sleep(time::Duration::from_secs(5));
-                    let hrs = local.hour();
-                    if hrs == 21 {
-                        can_watch_tv = false;
-                        timer = 0;
-                        fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
-                        break;
-                    }
-                    p.update_state();
-                }
-                println!("State Change from Idle! State is now {:?}", p.state);
             }
             smart_plug::TVState::Unknown => {
                 p.update_state();
@@ -127,12 +150,11 @@ fn run_loop(p: &mut smart_plug::SmartPlug) {
         }
         if timer > wait_for {
             can_watch_tv = false;
-            println!("The value has been true for {timer} secs");
+            println!("The value has been true for {}" , format_duration(time::Duration::from_secs(timer as u64)));
             timer = 0;
             fs::write("tvtimer.txt", timer.to_string()).unwrap_or(());
             p.press_home_button();
-            thread::sleep(time::Duration::from_secs(5));
-            p.off();
+            thread::sleep(time::Duration::from_secs(1));
         }
     }
 }

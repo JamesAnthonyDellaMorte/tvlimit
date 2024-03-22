@@ -7,8 +7,10 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4"
+humantime = "2.1.0"
 serde = { version = "1.0.152", features = ["serde_derive"] }
 serde-xml-rs = "0.6.0"
-serde_json = "1.0.93"
+toml = "0.8.12"
 tplink-shome-protocol = "0.1.2"
 ureq = "2.9.6"
+
