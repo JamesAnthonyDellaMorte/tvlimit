@@ -1,12 +1,23 @@
 use serde::Deserialize;
 use std::net::TcpStream;
-use std::{thread, time};
+use std::{fmt, thread, time};
 #[derive(PartialEq, Debug)]
 pub enum TVState {
     Pause,
     Idle,
     Play,
     Unknown,
+}
+
+impl fmt::Display for TVState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TVState::Pause => write!(f, "Pause"),
+            TVState::Idle => write!(f, "Idle"),
+            TVState::Play => write!(f, "Play"),
+            TVState::Unknown => write!(f, "Unknown"),
+        }
+    }
 }
 #[derive(Debug, Deserialize)]
 struct Plugin {
